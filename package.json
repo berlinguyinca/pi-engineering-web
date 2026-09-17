@@ -1,0 +1,30 @@
+{
+  "name": "@pi-engineering/web",
+  "version": "0.1.0",
+  "description": "PI WEB operator surface for Pi Engineering orchestration missions (browser panel + server paired backend).",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.browser.json",
+    "typecheck": "tsc -p tsconfig.browser.json --noEmit",
+    "test": "vitest run",
+    "validate:manifest": "npx tsx scripts/validate-manifest.ts"
+  },
+  "devDependencies": {
+    "@jmfederico/pi-web": "^1.202608.1",
+    "@types/node": "^24.13.3",
+    "jsdom": "^30.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^3.0.0"
+  },
+  "piWeb": {
+    "plugins": [
+      {
+        "id": "pi-engineering.missions",
+        "browserRoot": "dist/browser",
+        "module": "dist/browser/index.js"
+      }
+    ]
+  }
+}
