@@ -216,6 +216,28 @@ describe("pi-engineering missions browser plugin", () => {
     await expect(readSnapshot(fakeCtx(JSON.stringify(bad)))).rejects.toBeInstanceOf(SnapshotShapeError);
   });
 
+  it.each([
+    ["recoveryAttempt non-object", "recoveryAttempt", "x"],
+    ["recoveryAttempt negative attempt", "recoveryAttempt", { attempt: -1, maxAttempts: 5 }],
+    ["preservedWork non-array", "preservedWork", "x"],
+    ["preservedWork non-string items", "preservedWork", [1]],
+  ])("rejects bad v3 type: %s", async (_name, key, value) => {
+    const bad = structuredClone(V3_SNAPSHOT) as unknown as { missions: Array<{ observability: Record<string, unknown> }> };
+    bad.missions[0].observability[key] = value;
+    await expect(readSnapshot(fakeCtx(JSON.stringify(bad)))).rejects.toBeInstanceOf(SnapshotShapeError);
+  });
+
+  it("renders HTML-looking v3 strings as inert text", async () => {
+    const evil = "<img src=x onerror=alert(1)>";
+    const snap = structuredClone(V3_SNAPSHOT);
+    Object.assign(snap.missions[0].observability, { reason: evil, nextAction: evil, preservedWork: [evil] });
+    const panel = await renderPanel(fakeCtx(JSON.stringify(snap)));
+    expect(panel.querySelector("img")).toBeNull();
+    expect(panel.textContent).toContain(`Reason: ${evil}`);
+    expect(panel.textContent).toContain(`Next: ${evil}`);
+    expect(panel.textContent).toContain(`Preserved work: ${evil}`);
+  });
+
   it("renders v3 action, reason, next action, recovery attempt, ownership, and preserved work", async () => {
     const panel = await renderPanel(fakeCtx(JSON.stringify(V3_SNAPSHOT)));
     expect(panel.textContent).toContain("Action: retry worker");
