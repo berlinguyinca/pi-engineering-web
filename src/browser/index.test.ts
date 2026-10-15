@@ -93,6 +93,30 @@ const V2_SNAPSHOT = {
   }],
 };
 
+// Shape copied from the runtime's toObservabilitySnapshot (pi-engineering
+// src/orchestration/missionSnapshot.ts, contract version 3).
+const V3_SNAPSHOT = {
+  ...V2_SNAPSHOT,
+  contractVersion: 3,
+  missions: [{
+    ...V1_SNAPSHOT.missions[0],
+    revision: 7,
+    observability: {
+      ...V2_SNAPSHOT.missions[0].observability,
+      lastMeaningfulProgressAt: null,
+      action: "retry_worker",
+      reason: "worker heartbeat lost",
+      recoveryAttempt: { attempt: 2, maxAttempts: 5 },
+      nextAction: "restart_worker",
+      nextActionAt: "2026-09-26T12:40:00Z",
+      owner: "runtime",
+      repository: "pi-engineering",
+      task: "t1",
+      preservedWork: ["worktree:/repo"],
+    },
+  }],
+};
+
 async function renderPanel(ctx: WorkspacePanelContext): Promise<HTMLElement> {
   const panel = document.createElement("pi-eng-missions-panel") as HTMLElement & { ctx: WorkspacePanelContext };
   document.body.append(panel);
@@ -180,8 +204,54 @@ describe("pi-engineering missions browser plugin", () => {
     expect(panel.textContent).toContain("35.5% · Implementation started");
   });
 
+  it("accepts the v3 snapshot contract alongside v1 and v2", async () => {
+    await expect(readSnapshot(fakeCtx(JSON.stringify(V3_SNAPSHOT)))).resolves.toMatchObject({ contractVersion: 3 });
+    await expect(readSnapshot(fakeCtx(JSON.stringify(V1_SNAPSHOT)))).resolves.toMatchObject({ contractVersion: 1 });
+    await expect(readSnapshot(fakeCtx(JSON.stringify(V2_SNAPSHOT)))).resolves.toMatchObject({ contractVersion: 2 });
+  });
+
+  it("rejects a malformed v3 field", async () => {
+    const bad = structuredClone(V3_SNAPSHOT) as typeof V3_SNAPSHOT & { missions: Array<{ observability: Record<string, unknown> }> };
+    bad.missions[0].observability.nextActionAt = 5;
+    await expect(readSnapshot(fakeCtx(JSON.stringify(bad)))).rejects.toBeInstanceOf(SnapshotShapeError);
+  });
+
+  it.each([
+    ["recoveryAttempt non-object", "recoveryAttempt", "x"],
+    ["recoveryAttempt negative attempt", "recoveryAttempt", { attempt: -1, maxAttempts: 5 }],
+    ["preservedWork non-array", "preservedWork", "x"],
+    ["preservedWork non-string items", "preservedWork", [1]],
+  ])("rejects bad v3 type: %s", async (_name, key, value) => {
+    const bad = structuredClone(V3_SNAPSHOT) as unknown as { missions: Array<{ observability: Record<string, unknown> }> };
+    bad.missions[0].observability[key] = value;
+    await expect(readSnapshot(fakeCtx(JSON.stringify(bad)))).rejects.toBeInstanceOf(SnapshotShapeError);
+  });
+
+  it("renders HTML-looking v3 strings as inert text", async () => {
+    const evil = "<img src=x onerror=alert(1)>";
+    const snap = structuredClone(V3_SNAPSHOT);
+    Object.assign(snap.missions[0].observability, { reason: evil, nextAction: evil, preservedWork: [evil] });
+    const panel = await renderPanel(fakeCtx(JSON.stringify(snap)));
+    expect(panel.querySelector("img")).toBeNull();
+    expect(panel.textContent).toContain(`Reason: ${evil}`);
+    expect(panel.textContent).toContain(`Next: ${evil}`);
+    expect(panel.textContent).toContain(`Preserved work: ${evil}`);
+  });
+
+  it("renders v3 action, reason, next action, recovery attempt, ownership, and preserved work", async () => {
+    const panel = await renderPanel(fakeCtx(JSON.stringify(V3_SNAPSHOT)));
+    expect(panel.textContent).toContain("Action: retry worker");
+    expect(panel.textContent).toContain("Reason: worker heartbeat lost");
+    expect(panel.textContent).toContain("Next: restart worker");
+    expect(panel.querySelector("time[datetime='2026-09-26T12:40:00Z']")).not.toBeNull();
+    expect(panel.textContent).toContain("Recovery attempt: 2/5");
+    expect(panel.textContent).toContain("Repository: pi-engineering");
+    expect(panel.textContent).toContain("Preserved work: worktree:/repo");
+    expect(panel.textContent).toContain("integration tests");
+  });
+
   it("rejects an unknown newer contract with an explicit compatibility error", async () => {
-    await expect(readSnapshot(fakeCtx(JSON.stringify({ ...V2_SNAPSHOT, contractVersion: 3 })))).rejects.toEqual(new UnsupportedSnapshotVersionError(3));
+    await expect(readSnapshot(fakeCtx(JSON.stringify({ ...V2_SNAPSHOT, contractVersion: 4 })))).rejects.toEqual(new UnsupportedSnapshotVersionError(4));
   });
 
   it("renders v2 current work, workers, activity, tests, waits, errors, recovery, and secondary progress", async () => {

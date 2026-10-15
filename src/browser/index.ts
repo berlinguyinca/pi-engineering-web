@@ -39,9 +39,19 @@ export interface MissionObservabilitySnapshot {
   currentActivity?: { type: string; summary: string; workerId?: string; file?: string; command?: string } | null;
   workers: { active: number; waiting: number; failed: number };
   lastHeartbeatAt?: string;
-  lastMeaningfulProgressAt?: string;
+  lastMeaningfulProgressAt?: string | null;
   waitingReason?: string;
   completionStatus: string;
+  /** Additive v3 — absent for v1/v2 publishers. */
+  action?: string;
+  reason?: string;
+  recoveryAttempt?: { attempt: number; maxAttempts: number };
+  nextAction?: string;
+  nextActionAt?: string | null;
+  owner?: string | null;
+  repository?: string | null;
+  task?: string | null;
+  preservedWork?: string[];
   progressHistory: Array<{ at: string; approximatePercent: number; label?: string }>;
   tests: { running: boolean; completed: number; total: number; passed: number; failed: number; skipped: number; failures: string[] };
   review: { status: string; blockingOpen: number; findings: Array<{ id: string; severity: string; status: string; summary: string; repaired: boolean }> };
@@ -91,13 +101,13 @@ export interface MissionSnapshotFinding {
 }
 
 const SNAPSHOT_PATH = ".pi-eng/orchestration-snapshot.json";
-const SUPPORTED_CONTRACT_VERSIONS = new Set([1, 2]);
+const SUPPORTED_CONTRACT_VERSIONS = new Set([1, 2, 3]);
 export const POLL_INTERVAL_MS = 5_000;
 export const STALE_AFTER_MS = 30_000;
 
 export class UnsupportedSnapshotVersionError extends Error {
   constructor(readonly version: number) {
-    super(`Unsupported Pi Engineering snapshot version ${version}; this plugin supports versions 1 and 2.`);
+    super(`Unsupported Pi Engineering snapshot version ${version}; this plugin supports versions 1, 2 and 3.`);
     this.name = "UnsupportedSnapshotVersionError";
   }
 }
@@ -297,9 +307,21 @@ function assertObservabilityShape(value: unknown, path: string): void {
   }
   requireRecord(value.workers, `${path}.workers`);
   for (const key of ["active", "waiting", "failed"] as const) requireNonNegativeInteger(value.workers, key, `${path}.workers`);
-  for (const key of ["lastHeartbeatAt", "lastMeaningfulProgressAt", "waitingReason"] as const) {
+  for (const key of ["lastHeartbeatAt", "waitingReason", "action", "reason", "nextAction"] as const) {
     requireOptionalString(value, key, path);
   }
+  for (const key of ["lastMeaningfulProgressAt", "nextActionAt", "owner", "repository", "task"] as const) {
+    if (value[key] !== undefined && value[key] !== null && typeof value[key] !== "string") {
+      throw new SnapshotShapeError(`${path}.${key} must be a string or null when present`);
+    }
+  }
+  if (value.recoveryAttempt !== undefined) {
+    requireRecord(value.recoveryAttempt, `${path}.recoveryAttempt`);
+    for (const key of ["attempt", "maxAttempts"] as const) {
+      requireNonNegativeInteger(value.recoveryAttempt, key, `${path}.recoveryAttempt`);
+    }
+  }
+  if (value.preservedWork !== undefined) requireStringArray(value, "preservedWork", path);
   requireString(value, "completionStatus", path);
   requireArray(value, "progressHistory", path).forEach((item, index) => {
     const itemPath = `${path}.progressHistory[${index}]`;
@@ -673,6 +695,38 @@ function renderObservability(obs: MissionObservabilitySnapshot): HTMLElement {
     const waiting = document.createElement("p");
     waiting.append(label("Waiting: "), readable(obs.waitingReason));
     container.append(waiting);
+  }
+
+  if (obs.action || obs.reason || obs.nextAction) {
+    const next = document.createElement("p");
+    if (obs.action) next.append(label("Action: "), readable(obs.action));
+    if (obs.reason) next.append(obs.action ? " · " : "", label("Reason: "), obs.reason);
+    if (obs.nextAction) {
+      next.append(obs.action || obs.reason ? " · " : "", label("Next: "), readable(obs.nextAction));
+      if (obs.nextActionAt) next.append(" at ", renderTime(obs.nextActionAt));
+    }
+    container.append(next);
+  }
+  if (obs.recoveryAttempt && obs.recoveryAttempt.maxAttempts > 0) {
+    const attempt = document.createElement("p");
+    attempt.append(label("Recovery attempt: "), `${obs.recoveryAttempt.attempt}/${obs.recoveryAttempt.maxAttempts}`);
+    container.append(attempt);
+  }
+  const ownership = [
+    ["Owner: ", obs.owner],
+    ["Repository: ", obs.repository],
+    ["Task: ", obs.task],
+  ] as const;
+  if (ownership.some(([, v]) => v)) {
+    const own = document.createElement("p");
+    own.className = "muted";
+    ownership.filter(([, v]) => v).forEach(([k, v], i) => own.append(i ? " · " : "", label(k), v as string));
+    container.append(own);
+  }
+  if (obs.preservedWork && obs.preservedWork.length > 0) {
+    const preserved = document.createElement("p");
+    preserved.append(label("Preserved work: "), obs.preservedWork.join(", "));
+    container.append(preserved);
   }
 
   const workersHeading = document.createElement("h4");
