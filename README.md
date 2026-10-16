@@ -22,13 +22,14 @@ through the PI WEB workspace-files API:
 <repoRoot>/.pi-eng/orchestration-snapshot.json
 ```
 
-The plugin supports both the legacy `contractVersion: 1` shape and the current
-`contractVersion: 2` shape. Version 2 is additive: each mission may include an
+The plugin supports `contractVersion` 1, 2 and 3. Versions are additive. Version 2
+adds an optional `observability` object per mission; version 3 (below) adds more
+optional fields on top of it. In version 2, each mission may include an
 `observability` object. Consumers feature-detect that object so v1 snapshots and
 v2 snapshots for missions without observability still render the base mission,
 task, and finding data.
 
-Base shape (v1 and v2):
+Base shape (v1, v2 and v3):
 
 ```json
 {
@@ -81,6 +82,45 @@ Version 2 adds:
   }]
 }
 ```
+
+Version 3 adds (all optional; the reader accepts them without requiring them):
+
+```json
+{
+  "contractVersion": 3,
+  "generatedAt": "…",
+  "missions": [{
+    "…": "base and version 2 mission fields above",
+    "revision": 3,
+    "stop": "…",
+    "tasks": [{ "…": "base task fields", "reliability": { "acceptanceIds": [], "candidateGeneration": 0, "missionGeneration": 0, "fencingToken": 0 } }],
+    "observability": {
+      "action": "run_task",
+      "reason": "task ready",
+      "recoveryAttempt": { "attempt": 0, "maxAttempts": 3 },
+      "nextAction": "verify",
+      "nextActionAt": null,
+      "lastMeaningfulProgressAt": null,
+      "owner": null,
+      "repository": null,
+      "task": null
+    }
+  }]
+}
+```
+
+In version 3, `lastMeaningfulProgressAt`, `nextActionAt`, `owner`, `repository` and
+`task` may be `null` as well as a string; the reader accepts both. `null` is not
+accepted for other optional string fields. `action`, `reason` and `nextAction`
+are strings, and `recoveryAttempt` holds non-negative integer `attempt` and
+`maxAttempts`. The panel renders `action` and `nextAction`. The reader does not
+validate or render `revision`, `stop` or a task's `reliability`, and it tolerates
+`acceptanceCriteria[].id`; it ignores them.
+
+The shared golden fixture is `src/browser/fixtures/mission-snapshot-v3.golden.json`.
+It is the byte-identical copy of pi-engineering's
+`test/fixtures/mission-snapshot-v3.golden.json`, which pi-engineering asserts its
+publisher output against, and the plugin's tests read it through `readSnapshot`.
 
 Unknown contract versions are rejected with an explicit compatibility error in
 the panel. Unreadable files, malformed JSON, and invalid contract shapes also
