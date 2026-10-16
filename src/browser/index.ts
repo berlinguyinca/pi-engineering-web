@@ -223,6 +223,12 @@ function requireOptionalString(record: Record<string, unknown>, key: string, pat
   }
 }
 
+function requireNullableString(record: Record<string, unknown>, key: string, path: string): void {
+  if (record[key] !== undefined && record[key] !== null && typeof record[key] !== "string") {
+    throw new SnapshotShapeError(`${path}.${key} must be a string or null when present`);
+  }
+}
+
 function requireOptionalNumber(record: Record<string, unknown>, key: string, path: string): void {
   if (record[key] !== undefined && (typeof record[key] !== "number" || !Number.isFinite(record[key]))) {
     throw new SnapshotShapeError(`${path}.${key} must be a finite number when present`);
@@ -311,9 +317,7 @@ function assertObservabilityShape(value: unknown, path: string): void {
     requireOptionalString(value, key, path);
   }
   for (const key of ["lastMeaningfulProgressAt", "nextActionAt", "owner", "repository", "task"] as const) {
-    if (value[key] !== undefined && value[key] !== null && typeof value[key] !== "string") {
-      throw new SnapshotShapeError(`${path}.${key} must be a string or null when present`);
-    }
+    requireNullableString(value, key, path);
   }
   if (value.recoveryAttempt !== undefined) {
     requireRecord(value.recoveryAttempt, `${path}.recoveryAttempt`);

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   POLL_INTERVAL_MS,
@@ -208,6 +210,46 @@ describe("pi-engineering missions browser plugin", () => {
     await expect(readSnapshot(fakeCtx(JSON.stringify(V3_SNAPSHOT)))).resolves.toMatchObject({ contractVersion: 3 });
     await expect(readSnapshot(fakeCtx(JSON.stringify(V1_SNAPSHOT)))).resolves.toMatchObject({ contractVersion: 1 });
     await expect(readSnapshot(fakeCtx(JSON.stringify(V2_SNAPSHOT)))).resolves.toMatchObject({ contractVersion: 2 });
+  });
+
+  describe("shared v3 golden fixture", () => {
+    const GOLDEN = readFileSync(resolve(process.cwd(), "src/browser/fixtures/mission-snapshot-v3.golden.json"), "utf8");
+    const golden = () => JSON.parse(GOLDEN) as any;
+
+    it("is a v3 snapshot whose real observability carries null fields", () => {
+      const observability = golden().missions[0].observability;
+      expect(golden().contractVersion).toBe(3);
+      for (const key of ["lastMeaningfulProgressAt", "nextActionAt", "owner", "repository", "task"]) {
+        expect(observability[key]).toBeNull();
+      }
+    });
+
+    it("is read through readSnapshot and resolves contractVersion 3 with nulls preserved", async () => {
+      const snapshot = await readSnapshot(fakeCtx(GOLDEN));
+      expect(snapshot).toMatchObject({ contractVersion: 3 });
+      expect((snapshot as any).missions[0].observability.lastMeaningfulProgressAt).toBeNull();
+    });
+
+    it("rejects the same fixture once its contractVersion is 4", async () => {
+      const future = golden();
+      future.contractVersion = 4;
+      await expect(readSnapshot(fakeCtx(JSON.stringify(future)))).rejects.toEqual(new UnsupportedSnapshotVersionError(4));
+    });
+
+    it.each(["lastMeaningfulProgressAt", "nextActionAt", "owner", "repository", "task"])(
+      "rejects a non-string, non-null %s",
+      async (key) => {
+        const bad = golden();
+        bad.missions[0].observability[key] = 7;
+        await expect(readSnapshot(fakeCtx(JSON.stringify(bad)))).rejects.toBeInstanceOf(SnapshotShapeError);
+      },
+    );
+
+    it("still rejects null for a field that is not nullable", async () => {
+      const bad = golden();
+      bad.missions[0].observability.waitingReason = null;
+      await expect(readSnapshot(fakeCtx(JSON.stringify(bad)))).rejects.toBeInstanceOf(SnapshotShapeError);
+    });
   });
 
   it("rejects a malformed v3 field", async () => {
