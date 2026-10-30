@@ -52,6 +52,21 @@ export interface MissionObservabilitySnapshot {
   repository?: string | null;
   task?: string | null;
   preservedWork?: string[];
+  /** Additive v3 — the model a mission is pinned to and each agent's model; absent on older publishers. */
+  modelUse?: {
+    pin: string | null;
+    pinnedAt: string | null;
+    agents: Array<{
+      workerId: string;
+      taskId: string | null;
+      role: string | null;
+      model: string | null;
+      state: string;
+      onPin: boolean | null;
+      why?: string | null;
+    }>;
+    elsewhere: number;
+  };
   progressHistory: Array<{ at: string; approximatePercent: number; label?: string }>;
   tests: { running: boolean; completed: number; total: number; passed: number; failed: number; skipped: number; failures: string[] };
   review: { status: string; blockingOpen: number; findings: Array<{ id: string; severity: string; status: string; summary: string; repaired: boolean }> };
@@ -296,6 +311,23 @@ function assertFindingShape(value: unknown, path: string): void {
   }
 }
 
+function assertModelUseShape(value: unknown, path: string): void {
+  requireRecord(value, path);
+  requireNullableString(value, "pin", path);
+  requireNullableString(value, "pinnedAt", path);
+  requireNonNegativeInteger(value, "elsewhere", path);
+  requireArray(value, "agents", path).forEach((item, index) => {
+    const itemPath = `${path}.agents[${index}]`;
+    requireRecord(item, itemPath);
+    requireString(item, "workerId", itemPath);
+    requireString(item, "state", itemPath);
+    for (const key of ["taskId", "role", "model", "why"] as const) requireNullableString(item, key, itemPath);
+    if (item.onPin !== null && typeof item.onPin !== "boolean") {
+      throw new SnapshotShapeError(`${itemPath}.onPin must be a boolean or null`);
+    }
+  });
+}
+
 function assertObservabilityShape(value: unknown, path: string): void {
   requireRecord(value, path);
   requireRecord(value.progress, `${path}.progress`);
@@ -326,6 +358,7 @@ function assertObservabilityShape(value: unknown, path: string): void {
     }
   }
   if (value.preservedWork !== undefined) requireStringArray(value, "preservedWork", path);
+  if (value.modelUse !== undefined) assertModelUseShape(value.modelUse, `${path}.modelUse`);
   requireString(value, "completionStatus", path);
   requireArray(value, "progressHistory", path).forEach((item, index) => {
     const itemPath = `${path}.progressHistory[${index}]`;
