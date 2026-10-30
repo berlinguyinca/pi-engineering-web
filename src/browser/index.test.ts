@@ -172,6 +172,9 @@ describe("pi-engineering missions browser plugin", () => {
     ["review finding", (mission: any) => { mission.observability.review.findings = [{ id: "f", severity: "blocking", status: "open", summary: "bad", repaired: "false" }]; }],
     ["changes", (mission: any) => { mission.observability.changes.changedFiles = [7]; }],
     ["artifact", (mission: any) => { mission.observability.artifacts = [false]; }],
+    ["model use", (mission: any) => { mission.observability.modelUse = "pinned"; }],
+    ["model use agent", (mission: any) => { mission.observability.modelUse = { pin: null, pinnedAt: null, elsewhere: 0, agents: [{ workerId: "W1", state: "running", onPin: "yes" }] }; }],
+    ["model use count", (mission: any) => { mission.observability.modelUse = { pin: null, pinnedAt: null, elsewhere: -1, agents: [] }; }],
   ])("rejects an invalid nested %s before rendering", async (_name, mutate) => {
     const invalid = structuredClone(V2_SNAPSHOT) as any;
     mutate(invalid.missions[0]);
@@ -193,6 +196,17 @@ describe("pi-engineering missions browser plugin", () => {
     const invalid = structuredClone(V2_SNAPSHOT) as any;
     mutate(invalid.missions[0].observability);
     await expect(readSnapshot(fakeCtx(JSON.stringify(invalid)))).rejects.toBeInstanceOf(SnapshotShapeError);
+  });
+
+  it("accepts a model-use block with an agent that ran off the pin", async () => {
+    const snapshot = structuredClone(V2_SNAPSHOT) as any;
+    snapshot.missions[0].observability.modelUse = {
+      pin: "gw/qwen3.8-27b",
+      pinnedAt: "2026-10-30T00:00:00Z",
+      elsewhere: 1,
+      agents: [{ workerId: "W2", taskId: "T2", role: "reviewer", model: "gw/deepseek", state: "running", onPin: false, why: "independent review runs on a different model than the work it reviews" }],
+    };
+    await expect(readSnapshot(fakeCtx(JSON.stringify(snapshot)))).resolves.toBeTruthy();
   });
 
   it("accepts and renders a fractional progress-history percentage within range", async () => {
